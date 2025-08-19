@@ -1,34 +1,42 @@
 import { differenceInDays } from "date-fns";
 import type { Row } from "./types";
 
-type AnyObj = Record<string, any>;
+type SourceRow = Record<string, unknown>;
 
-function toNum(v: any): number | null {
+function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") {
+    const n = Number(v.trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
 }
 
-function iso(v: any): string | null {
-  const d = v ? new Date(v) : null;
-  return d && !isNaN(d.getTime()) ? d.toISOString() : null;
+function iso(v: unknown): string | null {
+  if (!v) return null;
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export function combineReports(regRows: AnyObj[], actRows: AnyObj[]): Row[] {
-  // index by User ID
-  const byId = new Map<string, { reg?: AnyObj; act?: AnyObj }>();
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.length ? v : null;
+}
+
+export function combineReports(regRows: SourceRow[], actRows: SourceRow[]): Row[] {
+  const byId = new Map<string, { reg?: SourceRow; act?: SourceRow }>();
 
   for (const r of regRows) {
-    const id = String(r["User ID"] ?? "");
+    const id = str(r["User ID"]) ?? "";
     if (!id) continue;
-    const current = byId.get(id) || {};
+    const current = byId.get(id) ?? {};
     current.reg = r;
     byId.set(id, current);
   }
   for (const a of actRows) {
-    const id = String(a["User ID"] ?? "");
+    const id = str(a["User ID"]) ?? "";
     if (!id) continue;
-    const current = byId.get(id) || {};
+    const current = byId.get(id) ?? {};
     current.act = a;
     byId.set(id, current);
   }
@@ -36,19 +44,18 @@ export function combineReports(regRows: AnyObj[], actRows: AnyObj[]): Row[] {
   const out: Row[] = [];
 
   for (const [userId, pair] of byId.entries()) {
-    const reg = pair.reg || {};
-    const act = pair.act || {};
+    const reg = pair.reg ?? {};
+    const act = pair.act ?? {};
 
-    const nome = (reg["Customer Name"] ?? null) as string | null;
+    const nome = (reg["Customer Name"] as string | null) ?? null;
 
-    // Dates
     const regDateISO = iso(reg["Registration Date"]);
     const qualDateISO = iso(reg["Qualification Date"]);
 
-    // Numbers (safe casts)
     const firstDeposit = toNum(reg["First Deposit"]);
     const depositCount = toNum(reg["Deposit Count"]) ?? 0;
-    const withdrawals = toNum(act["Withdrawals"]) ?? toNum(reg["Withdrawals"]) ?? null; // prefer Activity if present
+    const withdrawals =
+      toNum(act["Withdrawals"]) ?? toNum(reg["Withdrawals"]) ?? null; // prefer Activity
 
     const posReg = toNum(reg["Position Count"]) ?? 0;
     const posAct = toNum(act["Position Count"]) ?? 0;
@@ -62,18 +69,17 @@ export function combineReports(regRows: AnyObj[], actRows: AnyObj[]): Row[] {
     const commReg = toNum(reg["Commission"]);
     const commissions = commAct ?? commReg ?? null;
 
-    // Flags & derived
-    const registrato = 1; // in Registrati by definition
-    const depositato = (depositCount > 0 || (firstDeposit ?? 0) > 0) ? 1 : 0;
+    const registrato = 1;
+    const depositato = depositCount > 0 || (firstDeposit ?? 0) > 0 ? 1 : 0;
     const operativo = posAny > 0 ? 1 : 0;
-    const qualificato = (lotsAny >= 1 || !!qualDateISO) ? 1 : 0;
+    const qualificato = lotsAny >= 1 || !!qualDateISO ? 1 : 0;
 
     let tempoQual: number | null = null;
     if (regDateISO && qualDateISO) {
       tempoQual = differenceInDays(new Date(qualDateISO), new Date(regDateISO));
     }
 
-    const noCommissioni = (lotsAny > 1 && (commissions ?? 0) === 0) ? 1 : 0;
+    const noCommissioni = lotsAny > 1 && (commissions ?? 0) === 0 ? 1 : 0;
 
     out.push({
       NOME: nome,
@@ -92,7 +98,6 @@ export function combineReports(regRows: AnyObj[], actRows: AnyObj[]): Row[] {
     });
   }
 
-  // stable sort by registration date desc then user id
   return out.sort((a, b) => {
     const ad = a.DATA ? new Date(a.DATA).getTime() : 0;
     const bd = b.DATA ? new Date(b.DATA).getTime() : 0;
