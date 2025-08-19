@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; }
+
+@layer utilities {
+  /* compact table cells */
+  .table-compact th,
+  .table-compact td {
+    @apply py-2 px-3;
+  }
+}
